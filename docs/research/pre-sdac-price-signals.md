@@ -1,94 +1,164 @@
 # Free pre-SDAC price signals and morning issuance feasibility
 
-Accessed and probed: 2026-09-12. Status tags: **V** = verified in first-party documentation or a direct first-party endpoint probe, **I** = inference from verified facts, **U** = unknown or not contractually established.
+Accessed and probed: 2026-09-12 to 2026-09-13. Status tags: **V** = verified in first-party documentation or a direct first-party endpoint, **O** = directly observed through a secondary implementation, **I** = inference from verified facts, and **U** = not established.
 
-## Decision
+## Corrected decision
 
-No eligible zero-cost production source for the EXAA 10:15 DE-LU curve was verified. **V** EXAA produces a real earlier price signal and its public website currently renders the 15-minute result. However, every machine-readable route fails at least one mandatory gate:
+ENTSO-E Transparency Platform A44 is an eligible zero-cost operational source for the separate EXAA 10:15 DE-LU auction curve. **V** The supported A44 REST request can select `classificationSequence_AttributeInstanceComponent.position=2`. **V** The ENTSO-E user interface identifies DE-LU Sequence 1 as SDAC and Sequence 2 as EXAA's separate 10:15 auction. The earlier conclusion that A44 could not distinguish EXAA was wrong because it considered only the usual A44 fields and missed this optional classification-sequence filter.
 
-- the documented EXAA market-data route is a paid subscription sold by Wiener Börse;
-- the EXAA Trading API is for trading participants, not a public data API;
-- the JSON used by EXAA's public page is undocumented, retains only four current delivery days in the observed response, has no publication timestamp or service commitment, and has no permission for automated reuse or derived public forecasts;
-- Energy-Charts exposes EXAA only in an undocumented chart file whose item is explicitly marked non-downloadable, while its supported API has no EXAA series; and
-- ENTSO-E and SMARD expose the coupled bidding-zone day-ahead price after SDAC, not an exchange-distinguishable 10:15 curve before the noon gate.
+Use the source under a deliberately narrow contract:
 
-Therefore the initial production contract must **not** promise an EXAA-enriched 11:30 issuance. **I** It may still define a later pre-SDAC update using other eligible features. Exact origins belong to [Choose forecast origins and horizon information sets](https://github.com/bhanuprasanna2001/delu/issues/8), after the fundamentals and weather audits close.
+- the 05:30 Europe/Berlin Day-Ahead issuance never uses same-morning EXAA;
+- the later D+1 issuance may use only a complete A44 Sequence 2, `PT15M` curve received by its Information Cutoff;
+- the system publishes the derived SDAC forecast and source provenance, not the raw EXAA curve;
+- absence, lateness, ambiguity, or incompleteness selects a registered no-EXAA fallback instead of delaying issuance or filling values; and
+- every poll is retained prospectively so observed latency and revisions can replace schedule-based assumptions.
 
-EXAA can become a candidate later only after both of these gates pass:
+An 11:30 Europe/Berlin cutoff is feasible but has no recovery margin guaranteed by the source documents. **V** EXAA matching can finish as late as 10:30, and ENTSO-E requires energy prices no later than one hour after the matching-algorithm output time. Therefore 11:30 is the documented outer bound on an ordinary latest-finish day, not an SLA that the curve will always be fetchable earlier. The production workflow should begin polling before 11:30, freeze at 11:30, and fall back immediately if the curve is not complete. Exact issuance and publication deadlines belong to [Choose forecast origins and horizon information sets](https://github.com/bhanuprasanna2001/delu/issues/8).
 
-1. written permission confirms zero-cost automated use for this non-commercial public informational service, including use as a model input and publication of derived forecasts; and
-2. a prospective first-seen study establishes availability, completeness, calendar behavior, and latency at the intended cutoff while creating the historical snapshot ledger that public sources do not provide.
+This is a technical reading of source contracts, not legal advice.
 
-This is a technical reading of published contracts and endpoint behavior, not legal advice.
+## Exact ENTSO-E contract
 
-## What the 10:15 auction actually guarantees
+### Supported request
 
-- **V** EXAA describes its independent 10:15 Classic Auction as the first price signal of the day and distinguishes it from its 12:00 SDAC market-coupling auction. A normal 10:15 delivery day has 24 hourly and 96 quarter-hourly products plus blocks. The rules separately define 23 hours and 92 quarter-hours for spring DST and 25 hours and 100 quarter-hours for autumn DST. [Trading with EXAA](https://www.exaa.at/en/energytrading/handel-mit-exaa/), [EXAA Trading Rules, annex 1](https://www.exaa.at/site/assets/files/1/3_04_trading_rules_spot_market_products_electric_power_per_01_01_2026.pdf)
-- **V** The official rules do not guarantee a result at exactly 10:15. Pre-trading runs from 08:00 until approximately 10:10 CET, matching may run from 10:00 until 10:30 CET, and post-trading may run until 10:40 CET. There is no post-trading for quarter-hour products. EXAA may change phases in individual cases. [EXAA Trading Rules, section 4](https://www.exaa.at/site/assets/files/1/3_04_trading_rules_spot_market_products_electric_power_per_01_01_2026.pdf)
-- **V** The 10:15 exchange calendar is not a simple 365-day calendar. Trading days are workdays Monday to Friday excluding listed non-trading days, and when several delivery days are traded on one trading day, separate auctions are held with a time delay. [EXAA Trading Rules, section 4](https://www.exaa.at/site/assets/files/1/3_04_trading_rules_spot_market_products_electric_power_per_01_01_2026.pdf)
-- **V** A direct 2026-09-12 probe of the public page's internal endpoint returned delivery days 2026-09-11 through 2026-09-14. The Monday delivery curve identified Friday 2026-09-11 as its auction day. The DE unknown-origin result contained 96 quarter-hour products. [Public trading-results endpoint](https://www.exaa.at/data/trading-results)
-- **V** EXAA calls this source region `DE` and defines its "Bidding Zone Germany" using the four German TSO control areas. Energy-Charts instead labels its chart item `Day Ahead Auction EXAA (DE-LU)`. No first-party statement was found that explains this relabeling. A future integration must preserve EXAA's source-native region and obtain written confirmation of its bidding-zone semantics instead of silently treating the two labels as interchangeable. [EXAA Trading Rules, section 11](https://www.exaa.at/site/assets/files/1/3_04_trading_rules_spot_market_products_electric_power_per_01_01_2026.pdf)
+The current official ENTSO-E Postman reference lists the classification sequence as an optional Energy Prices request parameter. **V** For a UTC half-open interval covering one DE-LU Market Delivery Day, the request is:
 
-The weekend result means that even a permitted feed would not be a uniform daily feature. **I** Training and inference would need the EXAA auction timestamp, delivery day, result first-seen time, signal age, product type, and completeness. On weekends and holidays, the curve for D+1 can be one or more days old even though it was auctioned specifically for that delivery day.
+```text
+GET https://web-api.tp.entsoe.eu/api
+  ?documentType=A44
+  &in_Domain=10Y1001A1001A82H
+  &out_Domain=10Y1001A1001A82H
+  &contract_MarketAgreement.type=A01
+  &classificationSequence_AttributeInstanceComponent.position=2
+  &periodStart=<yyyyMMddHHmm UTC>
+  &periodEnd=<yyyyMMddHHmm UTC>
+```
+
+Authentication uses the registered user's ENTSO-E security token. The filter is a request parameter, not merely a value to classify after downloading both sequences. Parameter names should be emitted exactly as documented even though third-party clients demonstrate that the service has tolerated capitalization variants. [Official REST API collection, `12.1.D Energy Prices`](https://documenter.getpostman.com/view/7009892/2s93JtP3F6)
+
+The returned `Publication_MarketDocument` and each `TimeSeries` must still be validated. Persist at least document `mRID`, `revisionNumber`, `createdDateTime`, sender, series `mRID`, in/out domains, contract type, classification sequence, currency, price unit, curve type, period bounds, resolution, point positions, and raw payload checksum. **V** ENTSO-E defines the classification sequence as the relative sequence of a time series where several auctions share an auction category and contract type. [Publication document UML model and schema, TimeSeries table](https://eepublicdownloads.entsoe.eu/clean-documents/EDI/Library/cim_based/schema/Publication_document_UML_model_and_schema_v1.3.pdf)
+
+### Sequence meaning
+
+For `BZN|DE-LU`, the current ENTSO-E user interface states:
+
+- Sequence 1 is the SDAC day-ahead price whose normal gate closure is 12:00 CET/CEST D-1; and
+- Sequence 2 is the separate EXAA 10:15 CET/CEST auction price.
+
+The [dynamic ENTSO-E Energy Prices UI](https://newtransparency.entsoe.eu/market/prices/dayAhead/PT15M) is the first-party source. The [`entsoe-py` report that captured the UI wording](https://github.com/EnergieID/entsoe-py/issues/422) is secondary corroboration. Its current raw client also implements the supported A44 query by passing `contract_MarketAgreement.type=A01` and the classification sequence. [`entsoe-py` query implementation](https://github.com/EnergieID/entsoe-py/blob/master/entsoe/entsoe.py)
+
+Do not identify EXAA using arrival order, list index, price differences, or resolution. Select and validate Sequence 2 explicitly. Sequence 1 remains the realised SDAC target.
+
+## Timing and calendar
+
+- **V** EXAA calls the 10:15 Classic Auction an independent first price signal and distinguishes it from its 12:00 SDAC auction. [Trading with EXAA](https://www.exaa.at/en/energytrading/handel-mit-exaa/)
+- **V** The official rules do not guarantee matching at exactly 10:15. Pre-trading runs from 08:00 until approximately 10:10 CET, matching can run from 10:00 until 10:30 CET, post-trading can run until 10:40 CET, and EXAA may alter phases in individual cases. There is no post-trading for quarter-hour products. [EXAA Trading Rules, section 4](https://www.exaa.at/site/assets/files/1/3_04_trading_rules_spot_market_products_electric_power_per_01_01_2026.pdf)
+- **V** ENTSO-E defines the day-ahead gate-closure timestamp for this publication as the matching-algorithm output time and requires publication no later than one hour afterward. Updates are allowed. The power exchange or TSO is the primary owner and provider. [ENTSO-E Detailed Data Descriptions v3r4, Energy Prices](https://eepublicdownloads.entsoe.eu/clean-documents/Transparency/MoP_Ref2_DDD_v3r4.pdf)
+- **I** If EXAA matching ends at its ordinary latest time of 10:30, ENTSO-E's publication deadline is 11:30. Exceptional auction changes, submission failures, platform incidents, or an API response received just after the deadline remain possible.
+- **V** EXAA trading days are workdays Monday through Friday except listed non-trading days. When one trading day covers several delivery days, the auctions run separately with a time delay. [EXAA Trading Rules, section 4](https://www.exaa.at/site/assets/files/1/3_04_trading_rules_spot_market_products_electric_power_per_01_01_2026.pdf)
+- **V** A direct EXAA page probe on 2026-09-12 returned delivery days through Monday 2026-09-14 and identified Friday 2026-09-11 as the Monday curve's `AuctionDay`. [EXAA public trading-results endpoint](https://www.exaa.at/data/trading-results)
+
+Consequently, Sequence 2 is delivery-day keyed, not always same-morning data. A Saturday, Sunday, Monday, or holiday D+1 forecast may use a curve auctioned on an earlier trading day. Store the auction day where supplied, ENTSO-E document creation time, first-seen time, and signal age. Never substitute the newest curve merely because its delivery day is close.
+
+## Resolution, DST, and market regimes
+
+- **V** EXAA has offered integrated quarter-hour products since 3 September 2014. Its current normal 10:15 auction contains 96 quarter-hours, 24 hours, and blocks. [Trading with EXAA](https://www.exaa.at/en/energytrading/handel-mit-exaa/)
+- **V** EXAA's rules define 92 quarter-hours on the spring transition day and 100 on the autumn transition day. [EXAA Trading Rules, annex 1](https://www.exaa.at/site/assets/files/1/3_04_trading_rules_spot_market_products_electric_power_per_01_01_2026.pdf)
+- **V** EXAA says German and Austrian auction prices have been calculated separately since the October 2018 zone split. [Trading with EXAA](https://www.exaa.at/en/energytrading/handel-mit-exaa/)
+- **V** The ENTSO-E DE-LU bidding-zone EIC is `10Y1001A1001A82H`, applicable from 2018-10-01. The earlier DE/AT/LU EIC is a different market regime and must not be relabeled as DE-LU. [ENTSO-E area and EIC list](https://transparencyplatform.zendesk.com/hc/en-us/articles/15885757676308-Area-List-with-Energy-Identification-Code-EIC)
+- **O** Current ENTSO-E Sequence 2 responses contain native `PT15M` EXAA data. The independent `entsoe-py` integration added a local-auction method that selects a sequence and resolution, and current public cache evidence separately exposes a DE-LU Sequence 2 `PT15M` series. These observations corroborate, but do not replace, first-party contracts.
+
+For every requested local delivery date, construct `[local midnight, next local midnight)` in `Europe/Berlin`, convert both ends to UTC for `periodStart` and `periodEnd`, and require exactly 92, 96, or 100 distinct UTC intervals as dictated by that local date. Preserve UTC start as the identifier plus local label and UTC offset. Never manufacture the missing spring hour, merge the repeated autumn hour, or accept four copies of an hourly value as native quarter-hour observations.
+
+The A44 response can contain more than one resolution. The late model's EXAA feature is specifically the Sequence 2 `PT15M` series. Hourly EXAA values and blocks are distinct products and must not be expanded or mixed into that feature.
+
+## Historical availability and point-in-time limits
+
+The semantic earliest possible DE-LU Sequence 2 history is delivery date 2018-10-01 because that is when the DE-LU zone began and EXAA began calculating Germany separately from Austria. **U** First-party documentation does not state the earliest historical date for which ENTSO-E A44 Sequence 2 is actually extractable. Do not turn the semantic boundary into an availability claim.
+
+The evidence establishes:
+
+- **V** the current supported A44 query and Sequence 2 meaning;
+- **V** EXAA's native quarter-hour product predates the DE-LU zone;
+- **O** public implementation reports show the filter working by 2025 and current live data show it working in 2026; and
+- **U** uninterrupted Sequence 2 coverage back to 2018, missing days, corrections, and resolution anomalies have not been measured with an authenticated ENTSO-E backfill.
+
+An authenticated coverage probe is therefore a required data-onboarding acceptance test, not a reason to reject the live source. Query in bounded periods from 2018-10-01 onward and report, by Market Delivery Day: document count, sequence, resolution, expected versus observed interval count, duplicates, currency/unit, document revision and creation time, and missing periods. Keep raw responses. Earlier DE/AT/LU data, if available, remains an explicitly separate auxiliary regime.
+
+ENTSO-E exposes current or corrected delivery-time documents. **V** A44 supports updates, but its request filters delivery time and contains no historical `as_of`, ingestion-time, or first-seen parameter. `revisionNumber` and `createdDateTime` describe the document returned; they do not reconstruct every version that was visible at a historical 11:30 origin. Therefore:
+
+- historical Sequence 2 values can be candidate model features only under a documented schedule-based availability assumption;
+- where the returned document creation time is later than the simulated origin, exclude it from that backtest row;
+- a no-EXAA late-origin model must be evaluated on the same folds to measure sensitivity to that assumption; and
+- strict latency, outage, and revision distributions begin only with prospective immutable polling.
+
+This limitation must remain visible in experiment metadata. A current database value does not prove that the same value was available at 11:30 on its historical publication day.
+
+## Access and reuse boundary
+
+ENTSO-E API access is zero-price but requires registration and a security token. The supported interface is preferable to EXAA's private page JSON and Energy-Charts' chart payload.
+
+The current ENTSO-E Terms of Use permit consulting and using Transparency Platform data subject to good-faith use, source attribution, technical rules, and primary-owner rights. They require users to check the separately maintained free-reuse list before re-use. [ENTSO-E Transparency Platform Terms of Use](https://transparency.entsoe.eu/content/static_content/download?path=%2FStatic+content%2Fterms+and+conditions%2F230309_ENTSOE_Transparency_Terms_Conditions_MC_APPROVED.pdf)
+
+Day-ahead energy prices under Transparency Regulation article 12.1.d are not listed in the published CC BY 4.0 free-reuse list. [List of data available for free re-use](https://transparency.entsoe.eu/content/static_content/Static%20content/terms%20and%20conditions/220218_List_of_Data_available_for_reuse.pdf) That means ENTSO-E access being free does not grant a general CC BY licence to republish raw EXAA prices.
+
+The product contract avoids that unsupported step:
+
+- use Sequence 2 internally as an input to the forecasting calculation;
+- publish only the independently generated SDAC point and quantile forecasts;
+- disclose `ENTSO-E Transparency Platform, A44, DE-LU, Sequence 2` as input provenance without implying ENTSO-E or EXAA endorsement; and
+- do not expose, proxy, download, chart, or redistribute raw Sequence 2 values through the public website or API.
+
+This narrow derived-output use is the production decision. If the product later republishes raw EXAA observations, uses them in a commercial service, or exposes enough data to reconstruct the source curve, obtain written permission from the primary owner first.
 
 ## Source eligibility matrix
 
-| Candidate | What is actually exposed | Timing | History and vintages | Automation and reuse | Classification |
-| --- | --- | --- | --- | --- | --- |
-| EXAA public results page | Current DE 10:15 prices for hours, blocks, and 96 quarter-hours via `/data/trading-results`; four delivery days in the observed response. **V** | Auction matching can finish as late as 10:30 CET; public-page first-seen latency is **U**. Responses contain `AuctionDay` but no published-at or first-available timestamp. | Four delivery days observed; no supported archive or historical vintages. **V** | The endpoint is called by EXAA's page JavaScript but is undocumented as a public API. [Current EXAA rules](https://www.exaa.at/site/assets/files/1/3_04_trading_rules_spot_market_products_electric_power_per_01_01_2026.pdf) describe the trading database as protected and prohibit electronic transmission to third parties without consent, subject to stated exceptions. **V** | Unusable for production or backtesting without written permission and observation. |
-| EXAA Trading API | Automated order and result management for the 10:15 and 12:00 auctions. **V** | Member trading-system timing. | Not documented as a public historical archive. | Available at no additional API fee only to EXAA trading participants. It is not a zero-cost public-data route. **V** [Trading API](https://www.exaa.at/en/marketdata/trading-api/) | Ineligible. |
-| EXAA or Wiener Börse market-data service | Real-time and end-of-day 10:15 and 12:00 prices, volumes, and curves over sFTP. **V** | Product-dependent. | The 10:15 package includes current-year history; older history is available on request. **V** | Wiener Börse defines processing and third-party derived data as non-display use. Its price list effective 2026-01-01 charges EUR 550/month for real-time or EUR 250/month for end-of-day 10:15 prices and volumes for Austria and Germany. **V** [EXAA market-data page](https://www.exaa.at/en/marketdata/historical-marketdata/), [Wiener Börse product and use terms](https://www.wienerborse.at/en/market-data/market-data-sales/partner-exchanges-products/exaa/), [2026 price list](https://www.wienerborse.at/uploads/u/cms/files/market-data/en-annex1-market-data-agreement-2026.pdf) | Ineligible under the zero-cost constraint. |
-| Energy-Charts supported API | `/price`, `/v2/price`, `/v2/price_current`, and `/v2/price_next_day`; price requests accept a bidding zone, not an exchange or auction. No EXAA identifier occurs in the OpenAPI contract. **V** | The next-day endpoint describes normal availability in the early afternoon, after SDAC. **V** | Historical coupled prices, not historical EXAA vintages. | DE-LU price is copied unchanged from SMARD and explicitly CC BY 4.0. `/price` permits 2 requests/minute with burst 2, v2 inherits the v1 limit, and effective limits may be lower under load. **V** [OpenAPI contract](https://api.energy-charts.info/openapi.json) | Eligible for the realised SDAC target or fallback, not as a pre-SDAC EXAA signal. |
-| Energy-Charts static chart JSON | A weekly `Day Ahead Auction EXAA (DE-LU)` array is visible at a static chart path. A 2026-W37 probe returned 672 quarter-hour cells. **V** | No per-series published-at timestamp. File `Last-Modified` reflects whole-file regeneration and does not prove auction-result latency. | Weekly chart files are visible, but no supported archive or vintage contract was found. | Unsupported by the OpenAPI contract. The item has `allowCsvDownloadForItem: false`; the site's publishing notes allow download or print for personal use only unless written approval is obtained. **V** [chart](https://www.energy-charts.info/charts/price_spot_market/chart.htm?l=en&c=DE), [publishing notes](https://www.energy-charts.info/publishing-notes.html?c=DE&l=en) | Ineligible without written permission and a supported contract. |
-| ENTSO-E Transparency Platform A44 | One day-ahead energy-price document per bidding zone and MTU. **V** | Publication no later than one hour after gate closure, which ENTSO-E defines as the matching-algorithm output time. This is post-SDAC for the coupled price. **V** | Current/corrected delivery-time series; no as-of price-vintage extraction was established. | A44 request fields use the same in/out domain and do not use process, auction, business, or market-agreement selectors. It cannot request EXAA 10:15 separately. **V** [API extraction guide](https://transparency.entsoe.eu/content/static_content/download?path=%2FStatic+content%2Fweb+api%2FIG-for-TP-data-extraction-process.pdf), [current Manual of Procedures](https://www.entsoe.eu/data/transparency-platform/mop/) | Not a pre-SDAC signal. |
-| SMARD wholesale price | Coupled day-ahead bidding-zone price copied through ENTSO-E; primary owners are the exchanges. **V** | Published no later than one hour after bid-acceptance closure according to the current handbook. This is post-auction. | Corrected history may be updated later; no source publication timestamp per value. | Supported public download and useful for the target, but no distinct EXAA auction. [SMARD handbook](https://www.smard.de/resource/blob/220052/9d526adf4b948599da4a956dfae6dab9/smard-benutzerhandbuch-04-2026-data.pdf) | Not a pre-SDAC signal. |
-| Netztransparenz | Monthly market values and legally defined volume-weighted spot prices across exchanges. **V** | Published in the following month, not before the SDAC gate. | Ex-post monthly products. | Supported downloads where offered, but no current 10:15 EXAA price feed was found. [Spot price under section 3 no. 42a EEG](https://www.netztransparenz.de/de-de/Erneuerbare-Energien-und-Umlagen/EEG/Transparenzanforderungen/Marktpr%C3%A4mie/Spotmarktpreis-nach-3-Nr-42a-EEG) | Not a pre-SDAC signal. |
+| Candidate | Result | Role |
+| --- | --- | --- |
+| ENTSO-E A44 Sequence 2 | Supported, zero-price authenticated API; exact sequence filter; no historical vintage API; raw-price free-reuse licence not established. **V** | Primary operational EXAA input for the later D+1 model under the narrow derived-output contract. |
+| Direct EXAA public-page JSON | Current native quarter-hour result but undocumented endpoint, shallow observed history, no service contract, and restrictive database-transmission terms. **V** | Diagnostic cross-check only, not production ingestion. |
+| EXAA Trading API | Available to trading participants, not a public-data API. **V** | Ineligible. |
+| Wiener Börse EXAA market data | Supported real-time/end-of-day and historical product, but paid. **V** | Ineligible under the zero-cost constraint. |
+| Energy-Charts supported API | Bidding-zone SDAC prices copied unchanged from SMARD; no EXAA series in its OpenAPI contract. **V** | Realised SDAC fallback/cross-check, not EXAA. |
+| Energy-Charts chart payload | Displays an EXAA item but it is outside the supported API and marked non-downloadable. **V** | Ineligible for automated production use. |
+| SMARD | Supported coupled SDAC target after the auction; no separate EXAA curve. **V** | Primary or fallback realised target according to the target-source decision. |
+| Netztransparenz | Ex-post monthly market values, not a pre-SDAC price signal. **V** | Ineligible for this feature. |
 
-No other zero-cost, supported, exchange-distinguishable pre-SDAC price feed was verified. **U** Absence from this search is not proof that none can ever exist, but it is sufficient to reject a production dependency until a supported source is identified.
+The earlier EXAA-source audit remains useful for rejecting unsupported direct and Energy-Charts routes. Only the ENTSO-E A44 classification-sequence conclusion changes.
 
-## Energy-Charts is not a free EXAA API
+## Minimum production-safe behavior
 
-The public website and the supported API have materially different contracts:
+For the late D+1 issuance:
 
-- **V** The OpenAPI schema contains only bidding-zone day-ahead price endpoints. It has no exchange parameter and no `EXAA` series. For DE-LU, it says the price data comes from SMARD, is published unchanged, and carries CC BY 4.0.
-- **V** The website's private chart payload contains a separate EXAA curve, but that item disables CSV download. Other public series in the same payload, including the coupled DE-LU auction curve, enable it.
-- **V** The general publishing notes restrict site material to personal use absent approval. The supported API supplies its own explicit data-licence statements, but the static EXAA chart payload does not.
-- **U** No first-party statement was found saying that Energy-Charts receives EXAA directly, may sublicense the result, exposes it by 11:30, or preserves publication-time vintages.
+1. Poll the supported Sequence 2 query before the cutoff and retain every raw response with request, receipt, and ingestion timestamps.
+2. At the Information Cutoff, accept only one unambiguous `PT15M`, EUR/MWh, Sequence 2 curve for the exact D+1 UTC interval with the expected 92, 96, or 100 points.
+3. If valid, score the EXAA-enabled model and record the source document identity, revision, creation time, first-seen time, checksum, and input profile in forecast provenance.
+4. If missing, late, duplicated, wrong-resolution, wrong-day, or incomplete, score the registered no-EXAA fallback. Mark the issuance input profile and degraded reason explicitly. Do not carry forward another delivery day's curve and do not wait beyond the pre-SDAC safety deadline.
+5. Never rewrite an issued forecast when A44 is corrected. Store the correction as another source revision and use it only in later training/evaluation decisions unless a new pre-gate issuance is explicitly allowed.
 
-It is therefore unsafe to infer a production licence, lineage, or latency commitment merely because the browser can render the curve.
+The no-EXAA fallback is not optional. It is the simplest production-safe response to an external signal whose exact historical and tail latency are not recoverable.
 
-## Consequences for the two candidate issuances
+## Nonblocking prospective latency monitor
 
-### 05:30 Europe/Berlin
+Start the monitor as soon as ingestion work begins, but do not make Wayfinding or the 05:30 product wait for a long observation study.
 
-- **V** No same-morning EXAA result exists yet.
-- **I** A 05:30 issue can be a genuine early forecast, but its actual feature set must come from the weather and fundamentals availability audits. It must not backfill later official forecasts into historical 05:30 rows.
+For each EXAA trading day, poll A44 Sequence 2 at a low fixed cadence from before the expected result until the 11:30 cutoff. For each attempt retain request time, response time, HTTP result, raw checksum, document and revision identifiers, `createdDateTime`, delivery-day coverage, resolution, point count, and validation outcome. Record later revisions through the day. Include Fridays with several delivery days, holidays, both DST transitions, and any delayed auction observed.
 
-### 11:30 Europe/Berlin
+Report at least:
 
-- **V** This is only 30 minutes before the normal 12:00 SDAC gate and leaves little recovery margin.
-- **V** On an EXAA trading day, matching may finish by 10:30, so a result can physically exist before 11:30. That is not evidence that an eligible public feed is complete by then.
-- **V** On weekends and non-trading days, the relevant D+1 curve may have been auctioned on an earlier trading day.
-- **I** A later update can still be valuable because newer weather runs and official forecasts may be available. It should be specified independently of EXAA. The exact cutoff must reserve bounded time for ingestion, completeness checks, fallback, scoring, persistence, and publication before noon.
+- first-seen complete time and minutes from 10:15, matching completion where known, and 11:30;
+- completeness rate by delivery-day relationship and calendar class;
+- p50, p95, p99, maximum, and after-cutoff frequency;
+- revision frequency and time to final observed revision; and
+- how often the no-EXAA fallback would have been selected.
 
-Do not train one model with an EXAA column populated from today's database and call it point-in-time correct. **V** None of the examined public routes preserves a supported historical first-seen EXAA feed. A late-origin EXAA candidate can be evaluated only after prospective collection, or from a licensed historical source that is outside the current scope.
+Thirty consecutive EXAA trading days are enough for an initial operational check, not an annual-tail SLA. Keep monitoring permanently. Once enough prospective predictions exist, compare the enriched and fallback late models on identical forecast origins before claiming that EXAA improves accuracy.
 
-## Smallest task that could reopen EXAA
+## Direct probes and corroboration
 
-This task is optional and should not block an EXAA-free initial specification:
-
-1. Ask EXAA or Wiener Börse and Fraunhofer ISE in writing whether the public JSON may be polled at zero cost for a non-commercial, public informational forecast; whether model-input use and publication of derived forecasts are permitted; what attribution is required; and whether a supported interface is available.
-2. Only after permission, poll the supported route from 10:00 through 11:15 Europe/Berlin on at least 30 consecutive EXAA trading days, honoring all published rate limits.
-3. Persist request time, response headers, checksum, auction day, delivery day, product, quarter-hour, result completeness, correction time, failure, and retry outcome. Cover a Friday with several delivery days, at least one non-trading day, and any delayed auction encountered.
-4. Set an operational cutoff only from the observed completeness distribution and a declared safety margin. Thirty days can reject obvious infeasibility; it is not an SLA or proof of annual-tail reliability.
-5. Accumulate enough prospective history before adding EXAA to the model bake-off. Until then, treat it as unavailable in both training and inference.
-
-## Primary evidence probes
-
-All probes below were performed on 2026-09-12:
-
-- `https://www.exaa.at/data/trading-results` returned four current delivery days. A detailed DE unknown-origin query returned hour, block, and 96 quarter-hour products, with `AuctionDay` but no source-publication timestamp.
-- The EXAA website JavaScript identifies `/data/trading-results` and `/data/market-results` as page-internal endpoints; no public API documentation, versioning, rate limit, or deprecation policy was found.
-- `https://api.energy-charts.info/openapi.json` listed only bidding-zone price endpoints and contained no EXAA identifier.
-- `https://www.energy-charts.info/charts/price_spot_market/data/de/week_15min_2026_37.json` contained a 672-cell EXAA series with `allowCsvDownloadForItem: false`.
-- The ENTSO-E extraction guide marks A44's auction, process, business, and contract-market-agreement request fields as unused, confirming that the supported query cannot distinguish the 10:15 exchange curve.
+- The official Postman collection retrieved on 2026-09-13 lists `classificationSequence_AttributeInstanceComponent.position` as an optional `12.1.D Energy Prices` query parameter alongside A44, in/out domain, and A01 day-ahead contract type.
+- The official Publication document model defines that element on each `TimeSeries` and explains that it separates several auctions within the same auction category and contract type.
+- The first-party ENTSO-E UI mapping of DE-LU Sequence 1 to SDAC and Sequence 2 to EXAA is quoted in the independent `entsoe-py` issue. Its present raw client emits the same supported sequence query parameter.
+- A direct 2026-09-12 EXAA page probe returned native quarter-hour DE curves for four delivery days and an `AuctionDay`, but no source publication timestamp.
+- The supported Energy-Charts OpenAPI contract retrieved on 2026-09-12 contained no EXAA endpoint or exchange selector. Its DE-LU SDAC series is copied from SMARD.
