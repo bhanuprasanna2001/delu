@@ -42,6 +42,10 @@ _Avoid_: Upsampled hourly price
 The scheduled real-world instant at which a forecast's permissible information set is evaluated.
 _Avoid_: Run date, delivery date
 
+**Issuance Slot**:
+A recurring Europe/Berlin schedule that fixes a Forecast Origin, Information Cutoff, and publication deadline for one family of Issuances.
+_Avoid_: Pipeline time, approximate morning run
+
 **Information Cutoff**:
 The latest Source Availability Time allowed into one forecast issuance. Data first available after it is forbidden even if present in the database later.
 _Avoid_: Ingestion time, event time
@@ -109,6 +113,14 @@ _Avoid_: Current data, latest table
 **Training Example**:
 A target Forecast Interval paired with features eligible at one historical Forecast Origin under a Data Snapshot.
 _Avoid_: Training row, randomly split row
+
+**Input Profile**:
+A named contract for the feature families admissible at an Issuance Slot. Missing inputs select another eligible Input Profile rather than being silently substituted or filled.
+_Avoid_: Whatever data is available, ad hoc fallback
+
+**Forecast Horizon**:
+The elapsed time from Forecast Origin to a Forecast Interval's delivery start, additionally grouped by its Market Delivery Day offset such as D+1 or D+10.
+_Avoid_: Row number, model step
 
 **Day-Ahead Forecast**:
 A forecast for every Forecast Interval in the next Market Delivery Day, issued before the normal SDAC gate closes.
