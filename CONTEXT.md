@@ -17,15 +17,19 @@ The smallest delivery duration cleared natively by SDAC for the applicable marke
 _Avoid_: Sampling rate, display resolution
 
 **Delivery Interval**:
-An unambiguous half-open physical interval identified in UTC and described additionally by its Europe/Berlin local time, UTC offset, Market Delivery Day, and position within that day.
+An unambiguous half-open physical interval identified by Bidding Zone, applicable regime, UTC start, and duration. It is described additionally by its Europe/Berlin local time, UTC offset, Market Delivery Day, and position within that day.
 _Avoid_: Naive local timestamp, quarter-hour label
+
+**Interval Position**:
+The one-based position of a Delivery Interval after ordering a Market Delivery Day by UTC start. A 15-minute day therefore has positions 1 through 92, 96, or 100.
+_Avoid_: Row number, local-hour index
 
 **Legacy Market Regime**:
 The DE-AT-LU bidding-zone regime that ended after Market Delivery Day 2018-09-30. Its prices are not observations of the DE-LU target.
 _Avoid_: Old DE-LU data
 
 **Legacy Hourly Label**:
-An observed hourly SDAC clearing price from before native 15-minute SDAC operation. Four repeated copies are representations of one hourly label, not four observed quarter-hour labels.
+An observed hourly SDAC clearing price from before native 15-minute SDAC operation; a Market Delivery Day contains 23, 24, or 25 such labels. Four repeated copies are representations of one hourly label, not four observed quarter-hour labels.
 _Avoid_: Quarter-hour price, native 15-minute price
 
 **Native Quarter-Hour Label**:
@@ -46,9 +50,65 @@ _Avoid_: Ingestion time, event time
 The earliest evidenced instant at which a source record or forecast run was obtainable from the supported upstream interface.
 _Avoid_: Delivery time, assumed publication time
 
+**Upstream Run Time**:
+The source model's declared initialization or reference instant. It identifies a run but does not prove when its outputs became available.
+_Avoid_: Source Availability Time, ingestion time
+
+**Source Issue Time**:
+The source-declared instant at which an upstream record or forecast was created.
+_Avoid_: Forecast Origin, Issued At
+
+**Source Publication Time**:
+The source-declared instant at which an upstream record or forecast was released publicly.
+_Avoid_: Published At, ingestion time
+
+**First-Seen Time**:
+The earliest instant at which this system successfully observed an upstream record or forecast through the supported interface.
+_Avoid_: Source Publication Time, ingestion time
+
+**Ingestion Time**:
+The instant at which an obtained Source Revision was stored durably by this system. It is audit metadata, not a substitute for Source Availability Time.
+_Avoid_: Source Availability Time, event time
+
+**Source Revision Time**:
+The source-declared instant at which an upstream correction or replacement was created.
+_Avoid_: Ingestion Time, current value
+
 **Issuance**:
-An immutable, complete forecast curve created for one product and Forecast Origin. A later update is a new Issuance and does not overwrite the earlier one.
+An immutable, complete forecast curve created for one product and Forecast Origin, with its own identity. A correction or later update is a new, linked Issuance and may share the Forecast Origin, but never overwrites an earlier one.
 _Avoid_: Mutable current forecast, run
+
+**Generated At**:
+The instant at which computation of a complete forecast curve finished.
+_Avoid_: Forecast Origin, Issued At
+
+**Issued At**:
+The instant at which a complete forecast curve was accepted as an immutable Issuance.
+_Avoid_: Source Issue Time, Published At
+
+**Published At**:
+The instant at which an Issuance first became available through the public read path.
+_Avoid_: Source Publication Time, Issued At
+
+**Source Revision**:
+An immutable version of one upstream record, distinguished by source revision metadata and a payload checksum. A correction creates another Source Revision rather than replacing an earlier one.
+_Avoid_: Current value, overwritten row
+
+**Availability Evidence**:
+The basis for assigning Source Availability Time: observed first-seen, an authoritative source timestamp, or a conservative fixed-schedule inference. Mutable snapshots and records whose historical availability cannot be bounded have no admissible Availability Evidence for point-in-time use.
+_Avoid_: Assumed publication time
+
+**As-Of Selection**:
+The deterministic selection of the newest admissible Source Revision whose Source Availability Time is no later than an Information Cutoff.
+_Avoid_: Latest value, current snapshot
+
+**Data Snapshot**:
+An immutable selection of the exact Source Revisions used to derive forecast features or labels.
+_Avoid_: Current data, latest table
+
+**Training Example**:
+A target Forecast Interval paired with features eligible at one historical Forecast Origin under a Data Snapshot.
+_Avoid_: Training row, randomly split row
 
 **Day-Ahead Forecast**:
 A forecast for every Forecast Interval in the next Market Delivery Day, issued before the normal SDAC gate closes.
