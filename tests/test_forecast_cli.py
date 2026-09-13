@@ -18,10 +18,10 @@ BERLIN = ZoneInfo("Europe/Berlin")
 FORECAST_KEYS = ("point", "q10", "q25", "q50", "q75", "q90")
 
 
-def fixture_for(delivery_day: date) -> dict[str, Any]:
-    local_midnight = datetime.combine(delivery_day, datetime.min.time(), BERLIN)
+def fixture_for(market_delivery_day: date) -> dict[str, Any]:
+    local_midnight = datetime.combine(market_delivery_day, datetime.min.time(), BERLIN)
     next_midnight = datetime.combine(
-        delivery_day + timedelta(days=1), datetime.min.time(), BERLIN
+        market_delivery_day + timedelta(days=1), datetime.min.time(), BERLIN
     )
     starts = []
     current = local_midnight.astimezone(UTC)
@@ -29,13 +29,17 @@ def fixture_for(delivery_day: date) -> dict[str, Any]:
         starts.append(current.isoformat().replace("+00:00", "Z"))
         current += timedelta(minutes=15)
 
-    origin = datetime.combine(
-        delivery_day - timedelta(days=1), datetime.min.time(), BERLIN
-    ).replace(hour=5, minute=30).astimezone(UTC)
+    origin = (
+        datetime.combine(
+            market_delivery_day - timedelta(days=1), datetime.min.time(), BERLIN
+        )
+        .replace(hour=5, minute=30)
+        .astimezone(UTC)
+    )
     as_utc = lambda value: value.isoformat().replace("+00:00", "Z")
     return {
-        "issuance_id": f"early-{delivery_day.isoformat()}",
-        "market_delivery_day": delivery_day.isoformat(),
+        "issuance_id": f"early-{market_delivery_day.isoformat()}",
+        "market_delivery_day": market_delivery_day.isoformat(),
         "forecast_origin": as_utc(origin),
         "information_cutoff": as_utc(origin),
         "generated_at": as_utc(origin + timedelta(minutes=1)),
@@ -44,12 +48,12 @@ def fixture_for(delivery_day: date) -> dict[str, Any]:
         "input_profile": "early_core",
         "champion_model_versions": [
             {
-                "operational_model_role": "day_ahead_point",
+                "output": "point",
                 "model_name": "seasonal_naive",
                 "registered_model_version": "1",
             },
             {
-                "operational_model_role": "day_ahead_probabilistic",
+                "output": "probabilistic",
                 "model_name": "historical_residual_quantiles",
                 "registered_model_version": "1",
             },
@@ -57,7 +61,7 @@ def fixture_for(delivery_day: date) -> dict[str, Any]:
         "code_version": "9f2490f",
         "feature_definition_version": "calendar-v1",
         "data_snapshot": {
-            "data_snapshot_id": f"snapshot-{delivery_day.isoformat()}",
+            "data_snapshot_id": f"snapshot-{market_delivery_day.isoformat()}",
             "manifest_sha256": "a" * 64,
         },
         "source_attributions": [
@@ -69,7 +73,7 @@ def fixture_for(delivery_day: date) -> dict[str, Any]:
                 "licence_url": "https://creativecommons.org/licenses/by/4.0/",
             }
         ],
-        "forecasts": [
+        "forecast_intervals": [
             {
                 "delivery_start_utc": start,
                 "point": 50.0,
@@ -94,7 +98,14 @@ class ForecastCliTest(unittest.TestCase):
             input_path.write_text(json.dumps(fixture), encoding="utf-8")
             env = os.environ | {"PYTHONPATH": str(ROOT / "src")}
             result = subprocess.run(
-                [sys.executable, "-m", "delu", "emit-day-ahead", str(input_path), str(output_path)],
+                [
+                    sys.executable,
+                    "-m",
+                    "delu",
+                    "emit-day-ahead",
+                    str(input_path),
+                    str(output_path),
+                ],
                 check=False,
                 cwd=ROOT,
                 env=env,
@@ -118,11 +129,25 @@ class ForecastCliTest(unittest.TestCase):
         self.assertEqual(artifact["issuance_slot"], "early")
         self.assertEqual(artifact["status"], "normal")
         self.assertEqual(artifact["bidding_zone"], "DE-LU")
+        self.assertEqual(artifact["market_regime"], "DE-LU_NATIVE_QUARTER_HOUR")
         self.assertEqual(artifact["currency"], "EUR")
         self.assertEqual(artifact["unit"], "EUR/MWh")
         self.assertEqual(artifact["resolution"], "PT15M")
         self.assertEqual(artifact["covered_market_delivery_days"], ["2026-01-15"])
         self.assertEqual(len(artifact["intervals"]), 96)
+        self.assertEqual(
+            [model["output"] for model in artifact["champion_model_versions"]],
+            ["point", "probabilistic"],
+        )
+        self.assertTrue(
+            all(
+                model["product"] == "day_ahead"
+                and model["issuance_slot"] == "early"
+                and model["input_profile"] == "early_core"
+                and model["horizon_responsibility"] == "D+1"
+                for model in artifact["champion_model_versions"]
+            )
+        )
 
         first = artifact["intervals"][0]
         last = artifact["intervals"][-1]
@@ -134,30 +159,40 @@ class ForecastCliTest(unittest.TestCase):
         self.assertEqual(first["interval_position"], 1)
         self.assertEqual(last["interval_position"], 96)
         self.assertEqual(last["delivery_end_utc"], "2026-01-15T23:00:00Z")
-        self.assertEqual([first[key] for key in FORECAST_KEYS], [50.0, 30.0, 40.0, 50.0, 60.0, 70.0])
+        self.assertEqual(
+            [first[key] for key in FORECAST_KEYS], [50.0, 30.0, 40.0, 50.0, 60.0, 70.0]
+        )
 
         checksum = artifact.pop("content_sha256")
-        canonical = json.dumps(artifact, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        canonical = json.dumps(
+            artifact, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
         self.assertEqual(checksum, hashlib.sha256(canonical.encode()).hexdigest())
 
     def test_emits_dst_safe_transition_days(self) -> None:
         cases = ((date(2026, 3, 29), 92), (date(2026, 10, 25), 100))
 
-        for delivery_day, count in cases:
-            with self.subTest(delivery_day=delivery_day):
-                result, artifact = self.run_cli(fixture_for(delivery_day))
+        for market_delivery_day, count in cases:
+            with self.subTest(market_delivery_day=market_delivery_day):
+                result, artifact = self.run_cli(fixture_for(market_delivery_day))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 assert artifact is not None
                 self.assertEqual(len(artifact["intervals"]), count)
                 self.assertEqual(
-                    [interval["interval_position"] for interval in artifact["intervals"]],
+                    [
+                        interval["interval_position"]
+                        for interval in artifact["intervals"]
+                    ],
                     list(range(1, count + 1)),
                 )
 
         spring = self.run_cli(fixture_for(date(2026, 3, 29)))[1]
         assert spring is not None
         self.assertFalse(
-            any("T02:" in interval["delivery_start_local"] for interval in spring["intervals"])
+            any(
+                "T02:" in interval["delivery_start_local"]
+                for interval in spring["intervals"]
+            )
         )
 
         autumn = self.run_cli(fixture_for(date(2026, 10, 25)))[1]
@@ -167,27 +202,38 @@ class ForecastCliTest(unittest.TestCase):
             for interval in autumn["intervals"]
             if interval["delivery_start_local"].startswith("2026-10-25T02:00:00")
         ]
-        self.assertEqual([interval["utc_offset"] for interval in repeated], ["+02:00", "+01:00"])
-        self.assertNotEqual(repeated[0]["delivery_start_utc"], repeated[1]["delivery_start_utc"])
+        self.assertEqual(
+            [interval["utc_offset"] for interval in repeated], ["+02:00", "+01:00"]
+        )
+        self.assertNotEqual(
+            repeated[0]["delivery_start_utc"], repeated[1]["delivery_start_utc"]
+        )
 
     def test_rejects_invalid_curves(self) -> None:
         invalid = {}
 
         cardinality = fixture_for(date(2026, 1, 15))
-        cardinality["forecasts"].pop()
-        invalid["cardinality"] = (cardinality, "expected 96 forecasts")
+        cardinality["forecast_intervals"].pop()
+        invalid["cardinality"] = (cardinality, "expected 96 Forecast Intervals")
 
         non_finite = fixture_for(date(2026, 1, 15))
-        non_finite["forecasts"][0]["point"] = float("inf")
+        non_finite["forecast_intervals"][0]["point"] = float("inf")
         invalid["non-finite"] = (non_finite, "point must be finite")
 
         crossing = fixture_for(date(2026, 1, 15))
-        crossing["forecasts"][0]["q10"] = 45.0
+        crossing["forecast_intervals"][0]["q10"] = 45.0
         invalid["quantile crossing"] = (crossing, "quantiles must be nondecreasing")
 
         incomplete = fixture_for(date(2026, 1, 15))
-        del incomplete["forecasts"][0]["q90"]
+        del incomplete["forecast_intervals"][0]["q90"]
         invalid["incomplete"] = (incomplete, "missing q90")
+
+        incomplete_models = fixture_for(date(2026, 1, 15))
+        incomplete_models["champion_model_versions"].pop()
+        invalid["incomplete model roles"] = (
+            incomplete_models,
+            "model outputs must be point and probabilistic",
+        )
 
         for name, (fixture, message) in invalid.items():
             with self.subTest(name=name):
@@ -198,7 +244,7 @@ class ForecastCliTest(unittest.TestCase):
 
     def test_rejects_naive_local_time_as_interval_identity(self) -> None:
         fixture = fixture_for(date(2026, 1, 15))
-        fixture["forecasts"][0]["delivery_start_utc"] = "2026-01-15T00:00:00"
+        fixture["forecast_intervals"][0]["delivery_start_utc"] = "2026-01-15T00:00:00"
 
         result, artifact = self.run_cli(fixture)
 
@@ -224,6 +270,11 @@ class ForecastCliTest(unittest.TestCase):
         self.assertEqual(
             set(artifact["intervals"][0]),
             set(schema["properties"]["intervals"]["items"]["required"]),
+        )
+        cardinalities = schema["properties"]["intervals"]["oneOf"]
+        self.assertEqual(
+            {(case["minItems"], case["maxItems"]) for case in cardinalities},
+            {(92, 92), (96, 96), (100, 100)},
         )
 
 

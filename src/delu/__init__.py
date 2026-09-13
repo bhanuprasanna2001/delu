@@ -56,15 +56,23 @@ def _offset_text(value: datetime) -> str:
     return f"{sign}{hours:02d}:{remainder:02d}"
 
 
-def _expected_starts(delivery_day: date) -> list[datetime]:
-    start = datetime.combine(delivery_day, time.min, BERLIN).astimezone(UTC)
-    end = datetime.combine(delivery_day + timedelta(days=1), time.min, BERLIN).astimezone(UTC)
+def _expected_starts(market_delivery_day: date) -> list[datetime]:
+    start = datetime.combine(market_delivery_day, time.min, BERLIN).astimezone(UTC)
+    end = datetime.combine(
+        market_delivery_day + timedelta(days=1), time.min, BERLIN
+    ).astimezone(UTC)
     count = int((end - start) / timedelta(minutes=15))
     return [start + timedelta(minutes=15 * position) for position in range(count)]
 
 
-def _validate_timing(data: dict[str, Any], delivery_day: date) -> dict[str, str]:
-    names = ("information_cutoff", "forecast_origin", "generated_at", "issued_at", "published_at")
+def _validate_timing(data: dict[str, Any], market_delivery_day: date) -> dict[str, str]:
+    names = (
+        "information_cutoff",
+        "forecast_origin",
+        "generated_at",
+        "issued_at",
+        "published_at",
+    )
     instants = {name: _instant(data.get(name), name) for name in names}
     if list(instants.values()) != sorted(instants.values()):
         raise ValueError(
@@ -73,7 +81,7 @@ def _validate_timing(data: dict[str, Any], delivery_day: date) -> dict[str, str]
 
     local_origin = instants["forecast_origin"].astimezone(BERLIN)
     if (
-        local_origin.date() != delivery_day - timedelta(days=1)
+        local_origin.date() != market_delivery_day - timedelta(days=1)
         or local_origin.time().replace(tzinfo=None) != time(5, 30)
         or instants["information_cutoff"] != instants["forecast_origin"]
     ):
@@ -82,27 +90,37 @@ def _validate_timing(data: dict[str, Any], delivery_day: date) -> dict[str, str]
         )
     deadline = local_origin.replace(hour=6, minute=0)
     if instants["published_at"] > deadline.astimezone(UTC):
-        raise ValueError("Early Day-Ahead published_at must be no later than 06:00 Europe/Berlin")
+        raise ValueError(
+            "Early Day-Ahead published_at must be no later than 06:00 Europe/Berlin"
+        )
     return {name: _utc_text(value) for name, value in instants.items()}
 
 
-def _validate_models(value: object) -> list[dict[str, str]]:
+def _validate_models(value: object, input_profile: str) -> list[dict[str, str]]:
     if not isinstance(value, list) or not value:
         raise ValueError("champion_model_versions must be a non-empty array")
     models = []
-    roles = set()
+    outputs = set()
     for index, raw_model in enumerate(value):
         model = _mapping(raw_model, f"champion_model_versions[{index}]")
         validated = {
             key: _string(model, key)
-            for key in ("operational_model_role", "model_name", "registered_model_version")
+            for key in ("output", "model_name", "registered_model_version")
         }
-        if validated["operational_model_role"] in roles:
-            raise ValueError(
-                "champion_model_versions must have unique operational_model_role values"
-            )
-        roles.add(validated["operational_model_role"])
-        models.append(validated)
+        if validated["output"] in outputs:
+            raise ValueError("champion_model_versions must have unique output values")
+        outputs.add(validated["output"])
+        models.append(
+            {
+                "product": "day_ahead",
+                "issuance_slot": "early",
+                "input_profile": input_profile,
+                "horizon_responsibility": "D+1",
+                **validated,
+            }
+        )
+    if outputs != {"point", "probabilistic"}:
+        raise ValueError("champion model outputs must be point and probabilistic")
     return models
 
 
@@ -131,43 +149,51 @@ def _validate_attributions(value: object) -> list[dict[str, str]]:
     return attributions
 
 
-def _validate_intervals(value: object, delivery_day: date) -> list[dict[str, object]]:
+def _validate_intervals(
+    value: object, market_delivery_day: date
+) -> list[dict[str, object]]:
     if not isinstance(value, list):
-        raise TypeError("forecasts must be an array")
-    expected_starts = _expected_starts(delivery_day)
+        raise TypeError("forecast_intervals must be an array")
+    expected_starts = _expected_starts(market_delivery_day)
     if len(value) != len(expected_starts):
-        raise ValueError(f"expected {len(expected_starts)} forecasts, got {len(value)}")
+        raise ValueError(
+            f"expected {len(expected_starts)} Forecast Intervals, got {len(value)}"
+        )
 
     intervals: list[dict[str, object]] = []
-    for index, (raw_forecast, expected_start) in enumerate(
+    for index, (raw_forecast_interval, expected_start) in enumerate(
         zip(value, expected_starts, strict=True)
     ):
-        forecast = _mapping(raw_forecast, f"forecasts[{index}]")
+        forecast_interval = _mapping(
+            raw_forecast_interval, f"forecast_intervals[{index}]"
+        )
         actual_start = _instant(
-            forecast.get("delivery_start_utc"),
-            f"forecasts[{index}].delivery_start_utc",
+            forecast_interval.get("delivery_start_utc"),
+            f"forecast_intervals[{index}].delivery_start_utc",
             utc_only=True,
         )
         if actual_start != expected_start:
             raise ValueError(
-                f"forecasts[{index}].delivery_start_utc must be {_utc_text(expected_start)}"
+                f"forecast_intervals[{index}].delivery_start_utc must be {_utc_text(expected_start)}"
             )
 
         values: dict[str, int | float] = {}
         for key in FORECAST_KEYS:
-            if key not in forecast:
-                raise ValueError(f"forecasts[{index}] is missing {key}")
-            number = forecast[key]
+            if key not in forecast_interval:
+                raise ValueError(f"forecast_intervals[{index}] is missing {key}")
+            number = forecast_interval[key]
             if (
                 isinstance(number, bool)
                 or not isinstance(number, (int, float))
                 or not math.isfinite(number)
             ):
-                raise ValueError(f"forecasts[{index}].{key} must be finite")
+                raise ValueError(f"forecast_intervals[{index}].{key} must be finite")
             values[key] = number
         quantiles = [values[key] for key in FORECAST_KEYS[1:]]
         if quantiles != sorted(quantiles):
-            raise ValueError(f"forecasts[{index}] quantiles must be nondecreasing")
+            raise ValueError(
+                f"forecast_intervals[{index}] quantiles must be nondecreasing"
+            )
 
         local_start = actual_start.astimezone(BERLIN)
         intervals.append(
@@ -176,7 +202,7 @@ def _validate_intervals(value: object, delivery_day: date) -> list[dict[str, obj
                 "delivery_end_utc": _utc_text(actual_start + timedelta(minutes=15)),
                 "delivery_start_local": local_start.isoformat(timespec="seconds"),
                 "utc_offset": _offset_text(local_start),
-                "market_delivery_day": delivery_day.isoformat(),
+                "market_delivery_day": market_delivery_day.isoformat(),
                 "interval_position": index + 1,
                 **values,
             }
@@ -187,9 +213,13 @@ def _validate_intervals(value: object, delivery_day: date) -> list[dict[str, obj
 def build_day_ahead_artifact(value: object) -> dict[str, object]:
     data = _mapping(value, "input")
     try:
-        delivery_day = date.fromisoformat(_string(data, "market_delivery_day"))
+        market_delivery_day = date.fromisoformat(_string(data, "market_delivery_day"))
     except ValueError as error:
         raise ValueError("market_delivery_day must be an ISO calendar date") from error
+
+    input_profile = _string(data, "input_profile")
+    if input_profile != "early_core":
+        raise ValueError("input_profile must be early_core for a normal Early Issuance")
 
     artifact: dict[str, object] = {
         "contract_version": "v1",
@@ -198,30 +228,36 @@ def build_day_ahead_artifact(value: object) -> dict[str, object]:
         "issuance_slot": "early",
         "status": "normal",
         "supersedes_issuance_id": None,
-        **_validate_timing(data, delivery_day),
+        **_validate_timing(data, market_delivery_day),
         "bidding_zone": "DE-LU",
-        "covered_market_delivery_days": [delivery_day.isoformat()],
+        "market_regime": "DE-LU_NATIVE_QUARTER_HOUR",
+        "covered_market_delivery_days": [market_delivery_day.isoformat()],
         "currency": "EUR",
         "unit": "EUR/MWh",
         "resolution": "PT15M",
-        "input_profile": _string(data, "input_profile"),
+        "input_profile": input_profile,
         "degraded": False,
         "fallback_reason": None,
         "exaa_sequence_2_admitted": False,
         "champion_model_versions": _validate_models(
-            data.get("champion_model_versions")
+            data.get("champion_model_versions"), input_profile
         ),
         "code_version": _string(data, "code_version"),
         "feature_definition_version": _string(data, "feature_definition_version"),
         "data_snapshot": _validate_snapshot(data.get("data_snapshot")),
         "canonical_day_ahead_issuance_id": None,
         "source_attributions": _validate_attributions(data.get("source_attributions")),
-        "intervals": _validate_intervals(data.get("forecasts"), delivery_day),
+        "intervals": _validate_intervals(
+            data.get("forecast_intervals"), market_delivery_day
+        ),
     }
     canonical = json.dumps(
         artifact, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
-    return {"content_sha256": hashlib.sha256(canonical.encode()).hexdigest(), **artifact}
+    return {
+        "content_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
+        **artifact,
+    }
 
 
 def main() -> None:
