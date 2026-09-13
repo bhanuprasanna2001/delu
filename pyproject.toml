@@ -1,12 +1,12 @@
 [project]
 name = "delu"
 version = "0.1.0"
-description = "Add your description here"
+description = "DE-LU day-ahead electricity price forecasting"
 readme = "README.md"
 authors = [
     { name = "Bhanu Prasanna", email = "bhanu.prasanna2001@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = []
 
 [project.scripts]
